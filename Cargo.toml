@@ -1,0 +1,20 @@
+[package]
+name = "tiny_cli"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+defmt = ["dep:defmt"]
+
+[dependencies]
+# buffered-io = "0.6.0"
+defmt = { version="1", optional=true}
+embedded-io-async = "0.7"
+heapless = "0.9.2"
+num_enum = { version = "0.7.5", default-features = false }
+
+[dev-dependencies]
+smol = "2.0"
+embedded-io-async = {version="0.7", features=["std"]}
+async-io = "2.6.0"
+crossterm = "0.29.0"
