@@ -52,7 +52,7 @@ pub struct Utf8Char {
     len: u8,
 }
 
-impl std::fmt::Debug for Utf8Char {
+impl core::fmt::Debug for Utf8Char {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_tuple("Utf8Char").field(&self.as_char()).finish()
     }
