@@ -11,9 +11,6 @@ mod utf8;
 pub struct Config {
     /// user can exit the cli by pressing ctrl-c or ctrl-d
     pub can_exit: bool,
-    // actually no, the user can just print to the writer before calling "run"
-    // /// printed to the terminal at startup
-    // startup_message: &'static str,
 }
 
 /// Zero-allocation handler trait using a GAT for the returned future.
@@ -26,17 +23,22 @@ pub async fn run<
     R: embedded_io_async::Read,
     W: embedded_io_async::Write<Error = R::Error>,
     H: Handle<W>,
+    const MAX_LINE_LEN: usize,
 >(
     reader: &mut R,
     writer: &mut W,
     handle: H,
     config: &Config,
 ) -> Result<(), R::Error> {
+    // input buffer, size should not matter
     let mut buf = [0; 64];
     let mut parser = input::Parser::new();
 
     // currently entered line
-    let mut line: String<64> = String::new();
+    let mut line: String<MAX_LINE_LEN> = String::new();
+
+    writer.write_all(b"\r\n> ").await?;
+    writer.flush().await?;
 
     loop {
         let n = reader.read(&mut buf).await?;
@@ -75,7 +77,7 @@ pub async fn run<
                 }
                 // enter
                 A::ControlCharacter(CC::CarriageReturn) => {
-                    let level = Level::new(&line);
+                    let level = Level::new(&line, 1);
                     let mut ctx_type = ContextType::Execute;
                     let mut ctx = Context::new(&mut ctx_type, writer);
                     handle.handle(&mut ctx, level).await?;
@@ -100,7 +102,7 @@ pub async fn run<
 
                     // first try to complete the last word in-line, eg "con" -> "config"
                     // if that fails, eg. because there is also "connection", print all available options
-                    let level = Level::new(command_path);
+                    let level = Level::new(command_path, 1);
                     let mut autocomplete_best_match = None;
                     let mut exact_match = false;
                     let mut ctx_type = ContextType::AutocompleteBestMatch {
@@ -163,11 +165,12 @@ enum ContextType<'a> {
 #[derive(Debug, Copy, Clone)]
 pub struct Level<'a> {
     line: &'a str,
+    lvl_idx: usize,
 }
 
 impl<'a> Level<'a> {
-    fn new(line: &'a str) -> Self {
-        Self { line }
+    fn new(line: &'a str, lvl_idx: usize) -> Self {
+        Self { line, lvl_idx }
     }
 }
 
@@ -176,6 +179,7 @@ pub struct Context<'a, W: embedded_io_async::Write> {
     printed_stuff: bool,
     done: bool,
     writer: &'a mut W,
+    lvl_idx: usize,
 }
 
 impl<'a, W: embedded_io_async::Write> Context<'a, W> {
@@ -185,19 +189,24 @@ impl<'a, W: embedded_io_async::Write> Context<'a, W> {
             printed_stuff: false,
             done: false,
             writer,
+            lvl_idx: 0,
         }
     }
 
-    pub fn exec(&self, level: Level<'_>) -> bool {
-        if self.done {
+    pub fn exec(&mut self, level: Level<'_>) -> bool {
+        if self.lvl_idx >= level.lvl_idx {
             return false;
         }
         // todo: raise error when not empty
-        *self.ctx_type == ContextType::Execute && level.line.is_empty()
+        if *self.ctx_type == ContextType::Execute && level.line.is_empty() {
+            self.lvl_idx = level.lvl_idx;
+            return true;
+        }
+        false
     }
 
-    pub fn exec_arg<'l>(&self, level: Level<'l>) -> Option<&'l str> {
-        if self.done {
+    pub fn exec_arg<'l>(&mut self, level: Level<'l>) -> Option<&'l str> {
+        if self.lvl_idx >= level.lvl_idx {
             return None;
         }
 
@@ -207,6 +216,7 @@ impl<'a, W: embedded_io_async::Write> Context<'a, W> {
                 // TODO: raise error
                 None
             } else {
+                self.lvl_idx = level.lvl_idx;
                 Some(line)
             }
         } else {
@@ -219,7 +229,7 @@ impl<'a, W: embedded_io_async::Write> Context<'a, W> {
         level: Level<'l>,
         name: &'static str,
     ) -> Result<Option<Level<'l>>, W::Error> {
-        if self.done {
+        if self.lvl_idx >= level.lvl_idx {
             return Ok(None);
         }
 
@@ -236,8 +246,10 @@ impl<'a, W: embedded_io_async::Write> Context<'a, W> {
                     .next()
                     .is_none_or(char::is_whitespace)
                 {
+                    self.lvl_idx = level.lvl_idx;
                     return Ok(Some(Level {
                         line: prefix_removed.trim_start(),
+                        lvl_idx: level.lvl_idx + 1,
                     }));
                 }
             }

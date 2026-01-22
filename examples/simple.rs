@@ -46,10 +46,7 @@ fn main() {
         let stdout = io::stdout();
         let stdin = io::stdin();
 
-        // we should leave this up to the implementation tbh
-        // let mut writer_buf = buffered_io::asynch::BufferedWrite::new(writer);
-
-        tiny_cli::run(
+        tiny_cli::run::<_, _, _, 128>(
             &mut StdinReader(stdin),
             &mut StdoutWriter(stdout),
             MyHandler,
@@ -66,7 +63,7 @@ async fn handle_cli<'a, 'b, W: embedded_io_async::Write>(
 ) -> Result<(), W::Error> {
     // nested levels and exec / exec_arg
     if let Some(level) = ctx.command(level, "config").await? {
-        for name in ["enable", "logging", "logfile", "connetion", "constant"] {
+        for name in ["enable", "logging", "logfile", "connection", "constant"] {
             if let Some(level) = ctx.command(level, name).await? {
                 // config items get/set
                 if let Some(level) = ctx.command(level, "set").await? {
