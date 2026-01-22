@@ -1,5 +1,5 @@
 use std::io::{self, Read, Stdin, Stdout, Write};
-use tiny_cli::{Context, Handle, Level};
+use tiny_cli::{Config, Context, Handle, Level};
 
 pub struct StdinReader(pub Stdin);
 
@@ -53,6 +53,7 @@ fn main() {
             &mut StdinReader(stdin),
             &mut StdoutWriter(stdout),
             MyHandler,
+            &Config { can_exit: true },
         )
         .await
         .unwrap();

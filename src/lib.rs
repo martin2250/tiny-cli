@@ -6,7 +6,15 @@ use heapless::String;
 mod input;
 mod utf8;
 
-use input::Parser;
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Default, Copy, Clone, Debug)]
+pub struct Config {
+    /// user can exit the cli by pressing ctrl-c or ctrl-d
+    pub can_exit: bool,
+    // actually no, the user can just print to the writer before calling "run"
+    // /// printed to the terminal at startup
+    // startup_message: &'static str,
+}
 
 /// Zero-allocation handler trait using a GAT for the returned future.
 /// The returned future’s lifetime `'a` is tied to the borrowed `Context`/`Level`.
@@ -22,9 +30,10 @@ pub async fn run<
     reader: &mut R,
     writer: &mut W,
     handle: H,
+    config: &Config,
 ) -> Result<(), R::Error> {
     let mut buf = [0; 64];
-    let mut parser = Parser::new();
+    let mut parser = input::Parser::new();
 
     // currently entered line
     let mut line: String<64> = String::new();
@@ -39,7 +48,9 @@ pub async fn run<
 
             match action {
                 // exit CLI
-                A::ControlCharacter(CC::CtrlC | CC::CtrlD) if line.is_empty() => {
+                A::ControlCharacter(CC::CtrlC | CC::CtrlD)
+                    if config.can_exit && line.is_empty() =>
+                {
                     return Ok(());
                 }
                 // clear line
