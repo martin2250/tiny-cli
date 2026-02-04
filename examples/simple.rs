@@ -46,7 +46,7 @@ fn main() {
         let stdout = io::stdout();
         let stdin = io::stdin();
 
-        tiny_cli::run::<_, _, _, 128>(
+        tiny_cli::run::<_, _, _, 128, 1024>(
             &mut StdinReader(stdin),
             &mut StdoutWriter(stdout),
             MyHandler,

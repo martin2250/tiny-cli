@@ -1,7 +1,10 @@
 #![cfg_attr(not(test), no_std)]
 #![allow(async_fn_in_trait)]
 
+use bytearray_ringbuffer::BytearrayRingbuffer;
 use heapless::String;
+
+use crate::input::CSI;
 
 mod input;
 mod utf8;
@@ -24,6 +27,7 @@ pub async fn run<
     W: embedded_io_async::Write<Error = R::Error>,
     H: Handle<W>,
     const MAX_LINE_LEN: usize,
+    const HISTORY_LEN: usize,
 >(
     reader: &mut R,
     writer: &mut W,
@@ -33,6 +37,10 @@ pub async fn run<
     // input buffer, size should not matter
     let mut buf = [0; 64];
     let mut parser = input::Parser::new();
+
+    // history
+    let mut hist_buf = BytearrayRingbuffer::<HISTORY_LEN>::new();
+    let mut history_index: usize = 0;
 
     // currently entered line
     let mut line: String<MAX_LINE_LEN> = String::new();
@@ -60,6 +68,7 @@ pub async fn run<
                     // carriage return, then clear after cursor
                     writer.write_all(b"\r\x1B[0K> ").await?;
                     line.clear();
+                    history_index = 0;
                 }
                 // write
                 A::Print(utf8_char) => {
@@ -81,6 +90,12 @@ pub async fn run<
                     let mut ctx_type = ContextType::Execute;
                     let mut ctx = Context::new(&mut ctx_type, writer);
                     handle.handle(&mut ctx, level).await?;
+
+                    if !line.is_empty() {
+                        let _ = hist_buf.push_force(line.as_bytes());
+                    }
+                    history_index = 0;
+
                     line.clear();
                     writer.write_all(b"\r\n> ").await?;
                 }
@@ -143,6 +158,35 @@ pub async fn run<
                         }
                     }
                 }
+                // up / down arrow
+                A::ControlSequenceIntroducer(csi) if matches!(csi, CSI::CUU(_) | CSI::CUD(_)) => {
+                    if matches!(csi, CSI::CUU(_)) {
+                        if history_index < hist_buf.count() {
+                            history_index += 1;
+                        }
+                    } else if history_index > 0 {
+                        history_index -= 1;
+                    } else {
+                        continue;
+                    }
+
+                    if history_index > 0 {
+                        line.clear();
+                        let (a, b) = hist_buf.nth_reverse(history_index - 1).unwrap();
+                        unsafe {
+                            let _ = line.push_str(str::from_utf8_unchecked(a));
+                            let _ = line.push_str(str::from_utf8_unchecked(b));
+                        }
+                    } else {
+                        line.clear();
+                    }
+
+                    // carriage return, then clear after cursor
+                    writer.write_all(b"\r\x1B[0K> ").await?;
+                    writer.write_all(line.as_bytes()).await?;
+                }
+                A::Ignore => (),
+                // other => eprintln!("{other:?}"),
                 _ => (),
             }
         }
